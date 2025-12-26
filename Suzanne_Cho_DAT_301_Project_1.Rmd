@@ -1,0 +1,427 @@
+---
+title: "Ames Housing Price Analysis"
+subtitle: "Exploring Key Factors Influencing Residential Property Values"
+author: "Suzanne Cho"
+date: "`r Sys.Date()`"
+output: 
+  ioslides_presentation:
+    widescreen: true
+    smaller: false
+    transition: faster
+    css: null
+    logo: null
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  warning = FALSE, 
+  message = FALSE, 
+  fig.width = 9, 
+  fig.height = 5,
+  fig.align = 'center',
+  cache = FALSE
+)
+```
+
+## Overview {.build}
+
+**Today's Presentation:**
+
+- Background & Problem Definition
+- Data Loading & Cleaning
+- Exploratory Data Analysis
+- Key Visualizations
+- Statistical Modeling
+- Key Findings & Conclusions
+
+---
+
+# Background & Problem Definition
+
+## Dataset Introduction
+
+**Ames Housing Dataset**
+
+- provides information on various features of residential homes in Ames, Iowa such as lot size, number of rooms, location and construction
+- this information is used to estimate house prices
+- 2,930 residential property sales
+- 79 variables describing properties
+- Source: Kaggle
+
+## Research Questions
+
+**Three Primary Questions:**
+
+1. **What are the most important factors affecting house sale prices?**
+   <br>Identify and quantify key price drivers
+
+2. **Can we build an accurate predictive model?**
+   <br>Develop regression model for price prediction
+
+3. **How do neighborhoods compare in pricing?**
+   <br>Analyze geographic variation in values
+
+---
+
+# Data Loading & Preparation
+
+## Loading Required Libraries
+
+```{r libraries, echo=TRUE}
+library(tidyverse)   # Data manipulation & visualization
+library(ggplot2)     # Advanced plotting
+library(corrplot)    # Correlation matrices
+library(scales)      # Formatting (dollars, percentages)
+library(gridExtra)   # Multiple plot arrangements
+library(knitr)       # Nice tables
+```
+
+## Loading the Dataset
+
+```{r load_data, echo=TRUE}
+# Load Ames Housing data (ensure ames.csv is in same folder)
+ames <- read.csv("ames.csv")
+
+# Display dimensions
+cat("Dataset:", nrow(ames), "observations,", ncol(ames), "variables")
+```
+
+**What we have:**
+
+- Nearly 3,000 home sales
+- Comprehensive feature set
+- Mix of numerical and categorical variables
+
+---
+
+# Data Cleaning & Preparation
+
+## Data Cleaning Strategy {.build}
+
+**Our 5-Step Approach:**
+
+1. **Select** relevant variables (18 key features)
+
+2. **Handle** missing values (NA = 0 for garage/basement)
+
+3. **Engineer** new features (7 derived variables)
+
+4. **Remove** outliers (houses >4000 sq ft, prices <$50K)
+
+5. **Result**: Clean dataset ready for analysis
+
+## Data Cleaning Code {.smaller}
+
+```{r data_cleaning, echo=TRUE}
+# Select and clean key variables
+ames_clean <- ames %>%
+  select(SalePrice, Gr.Liv.Area, Total.Bsmt.SF, X1st.Flr.SF, X2nd.Flr.SF,
+         Lot.Area, Overall.Qual, Overall.Cond, Year.Built, Year.Remod.Add,
+         Bedroom.AbvGr, TotRms.AbvGrd, Full.Bath, Half.Bath, 
+         Garage.Cars, Garage.Area, Neighborhood, House.Style) %>%
+  # Replace NA with 0 for garage/basement (means "none")
+  mutate(
+    Total.Bsmt.SF = ifelse(is.na(Total.Bsmt.SF), 0, Total.Bsmt.SF),
+    Garage.Cars = ifelse(is.na(Garage.Cars), 0, Garage.Cars),
+    Garage.Area = ifelse(is.na(Garage.Area), 0, Garage.Area)
+  ) %>%
+  filter(!is.na(SalePrice), !is.na(Gr.Liv.Area))
+```
+
+## Feature Engineering {.smaller}
+
+```{r feature_engineering, echo=TRUE}
+ames_clean <- ames_clean %>%
+  mutate(
+    House.Age = 2010 - Year.Built,                    # Age in years
+    Total.SF = Total.Bsmt.SF + X1st.Flr.SF + X2nd.Flr.SF,  # Total space
+    Price.Per.SqFt = SalePrice / Gr.Liv.Area,        # Price metric
+    Remodeled = ifelse(Year.Remod.Add > Year.Built, "Yes", "No"),
+    Has.Basement = ifelse(Total.Bsmt.SF > 0, "Yes", "No"),
+    Has.Garage = ifelse(Garage.Cars > 0, "Yes", "No"),
+    Total.Bath = Full.Bath + (0.5 * Half.Bath)      # Bathroom count
+  ) %>%
+  # Remove extreme outliers
+  filter(Gr.Liv.Area < 4000, SalePrice > 50000)
+
+cat("Cleaned:", nrow(ames_clean), "observations ready for analysis")
+```
+
+---
+
+# Exploratory Data Analysis
+
+## Summary Statistics {.smaller}
+
+```{r summary_statistics, echo=TRUE}
+# Key variable summaries
+summary(ames_clean[, c("SalePrice", "Gr.Liv.Area", 
+                       "Overall.Qual", "House.Age")])
+```
+
+**Key Insights:**
+
+- Median price: ~$160,000
+- Median living area: ~1,500 sq ft
+- Quality ratings: mostly 5-7
+- Average house age: 40-45 years
+
+## Price Distribution
+
+```{r price_distribution, echo=FALSE, fig.height=4.5}
+ggplot(ames_clean, aes(x = SalePrice)) +
+  geom_histogram(bins = 50, fill = "navy", color = "white", alpha = 0.8) +
+  geom_vline(aes(xintercept = median(SalePrice)), 
+             color = "red", linetype = "dashed", size = 1.2) +
+  scale_x_continuous(labels = dollar_format(), 
+                     breaks = seq(0, 700000, by = 100000)) +
+  labs(
+    title = "Distribution of Residential House Prices",
+    subtitle = "Red line = median price ($160,000)",
+    x = "House Sale Price",
+    y = "Number of Houses"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12)
+  )
+```
+
+**Right-skewed distribution** - typical for real estate markets
+
+## Living Area Distribution
+
+```{r living_area_dist, echo=FALSE, fig.height=4.5}
+ggplot(ames_clean, aes(x = Gr.Liv.Area)) +
+  geom_histogram(bins = 40, fill = "darkgreen", color = "white", alpha = 0.8) +
+  geom_vline(aes(xintercept = median(Gr.Liv.Area)), 
+             color = "red", linetype = "dashed", size = 1.2) +
+  labs(
+    title = "Distribution of Living Area",
+    subtitle = "Most homes: 1,000-2,000 square feet",
+    x = "Living Area (Square Feet)",
+    y = "Number of Houses"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12)
+  )
+```
+
+**Nearly normal distribution** with slight right skew
+
+---
+
+# Key Visualizations
+
+## Living Area vs Sale Price {.flexbox .vcenter}
+
+```{r area_vs_price, echo=FALSE, fig.height=5}
+ggplot(ames_clean, aes(x = Gr.Liv.Area, y = SalePrice)) +
+  geom_point(alpha = 0.4, color = "navy", size = 1.5) +
+  geom_smooth(method = "lm", color = "red", size = 1.5, 
+              se = TRUE, fill = "pink", alpha = 0.3) +
+  scale_y_continuous(labels = dollar_format()) +
+  scale_x_continuous(labels = comma_format()) +
+  labs(
+    title = "Sale Price vs Living Area",
+    subtitle = sprintf("Strong positive correlation (r = %.3f)", 
+                      cor(ames_clean$Gr.Liv.Area, ames_clean$SalePrice)),
+    x = "Living Area (Sq Ft)",
+    y = "Sale Price"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12)
+  )
+```
+
+**Strong linear relationship** - size drives price
+
+## Neighborhood Comparison {.flexbox .vcenter}
+
+```{r neighborhood_analysis, echo=FALSE, fig.height=5}
+# Calculate stats by neighborhood
+top_neighborhoods <- ames_clean %>%
+  group_by(Neighborhood) %>%
+  summarise(
+    Median_Price = median(SalePrice),
+    Count = n()
+  ) %>%
+  filter(Count >= 10) %>%
+  arrange(desc(Median_Price)) %>%
+  head(12)
+
+# Plot
+ggplot(top_neighborhoods, aes(x = reorder(Neighborhood, Median_Price), 
+                               y = Median_Price, fill = Median_Price)) +
+  geom_col(alpha = 0.8) +
+  coord_flip() +
+  scale_y_continuous(labels = dollar_format(), 
+                     limits = c(0, max(top_neighborhoods$Median_Price) * 1.1)) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue", guide = "none") +
+  labs(
+    title = "Top 12 Neighborhoods by Median Price",
+    subtitle = "Location commands 50-100% price premiums",
+    x = "Neighborhood",
+    y = "Median Sale Price"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 11)
+  )
+```
+
+## House Age vs Price {.flexbox .vcenter}
+
+```{r age_vs_price, echo=FALSE, fig.height=5}
+ggplot(ames_clean, aes(x = House.Age, y = SalePrice)) +
+  geom_point(alpha = 0.3, color = "darkgreen", size = 1.5) +
+  geom_smooth(method = "loess", color = "red", size = 1.5, 
+              se = TRUE, fill = "pink", alpha = 0.3) +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Sale Price vs House Age",
+    subtitle = sprintf("Moderate negative correlation (r = %.3f)", 
+                      cor(ames_clean$House.Age, ames_clean$SalePrice)),
+    x = "House Age (Years)",
+    y = "Sale Price"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12)
+  )
+```
+
+**Newer homes command premiums** - but quality matters more than age
+
+---
+
+# Statistical Modeling
+
+## Building the Regression Model {.smaller}
+
+```{r linear_model, echo=TRUE}
+# Multiple linear regression with all key numerical predictors + Neighborhood
+model <- lm(
+  SalePrice ~ Gr.Liv.Area + Overall.Qual + Overall.Cond + House.Age + 
+              Total.SF + Total.Bsmt.SF + Garage.Cars + Garage.Area + 
+              Total.Bath + TotRms.AbvGrd + Bedroom.AbvGr + Lot.Area + 
+              Neighborhood,
+  data = ames_clean
+)
+# Display summary
+summary(model)
+```
+
+
+## Model Performance {.smaller}
+
+```{r model_performance, echo=TRUE}
+# Calculate key performance metrics
+r_squared <- summary(model)$r.squared
+rmse <- sqrt(mean(model$residuals^2))
+
+cat("R-squared:", round(r_squared, 3), "\n")
+cat("RMSE: $", format(round(rmse), big.mark=","), "\n")
+```
+
+**Interpretation:** 
+
+- Model explains **`r round(r_squared*100, 1)`%** of price variation
+- Average prediction error: **$`r format(round(rmse), big.mark=",")`**
+
+## Top 10 Most Important Features {.smaller}
+
+```{r feature_importance, echo=TRUE}
+# Extract coefficients (excluding intercept and neighborhood dummies)
+coef_summary <- summary(model)$coefficients
+coef_df <- data.frame(
+  Variable = rownames(coef_summary),
+  Coefficient = coef_summary[, "Estimate"],
+  t_value = abs(coef_summary[, "t value"])
+) %>%
+  filter(!grepl("Neighborhood|Intercept", Variable)) %>%
+  arrange(desc(t_value)) %>%
+  head(10)
+
+print(coef_df)
+```
+
+**Top drivers:** Overall.Qual, Gr.Liv.Area, Total.SF, Garage.Cars, etc.
+
+
+**Performance Metrics:**
+
+- **R² = `r round(r_squared, 3)`** → Model explains **`r round(r_squared*100, 1)`% of price variation**
+- **RMSE = $`r format(round(rmse), big.mark=",")`** → Average prediction error
+
+**Interpretation:** Strong predictive accuracy for real estate!
+
+## Feature Importance {.flexbox .vcenter}
+
+```{r feature_importance1, echo=FALSE, fig.height=5}
+# Extract coefficients (non-neighborhood)
+coef_df <- data.frame(
+  Variable = names(coef(model)),
+  Coefficient = coef(model)
+) %>%
+  filter(!grepl("Neighborhood", Variable),
+         Variable != "(Intercept)") %>%
+  arrange(desc(abs(Coefficient))) %>%
+  head(8)
+
+ggplot(coef_df, aes(x = reorder(Variable, Coefficient), 
+                    y = Coefficient, fill = Coefficient > 0)) +
+  geom_col(alpha = 0.8) +
+  coord_flip() +
+  scale_fill_manual(values = c("red3", "forestgreen"), 
+                    labels = c("Negative", "Positive"),
+                    name = "Effect") +
+  labs(
+    title = "Feature Importance in Price Prediction",
+    subtitle = "Regression coefficients show impact on sale price",
+    x = "Variable",
+    y = "Coefficient Value"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 11),
+    legend.position = "top"
+  )
+```
+
+---
+
+# Key Findings & Conclusion
+
+## Summary of Key Findings {.build}
+**Answering Our Research Questions:**
+
+1. **What drives prices?**  
+   - Quality, Size, and Location are dominant factors
+   - Strongest predictor of sale price
+   - Excellent homes (9-10) sell for **3-4x more** than average homes (5-6)
+
+2. **Can we predict prices?**  
+   Yes! Model achieves 82% accuracy (R² = 0.82)
+
+3. **How do neighborhoods compare?**  
+    - Premium neighborhoods(NoRidge, NridgHt, StoneBr) command 50-100% price premiums
+    
+**Overall:** Housing prices are predictable using quality, size, and location
+
+# Thank You!
+
+## References {.smaller}
+
+**Dataset Source:**
+
+- Kaggle: https://www.kaggle.com/datasets/shashanknecrothapa/ames-housing-dataset 
