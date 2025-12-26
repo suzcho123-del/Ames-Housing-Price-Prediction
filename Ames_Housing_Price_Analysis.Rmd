@@ -1,15 +1,8 @@
 ---
 title: "Ames Housing Price Analysis"
-subtitle: "Exploring Key Factors Influencing Residential Property Values"
 author: "Suzanne Cho"
 date: "`r Sys.Date()`"
-output: 
-  ioslides_presentation:
-    widescreen: true
-    smaller: false
-    transition: faster
-    css: null
-    logo: null
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
